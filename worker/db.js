@@ -35,13 +35,15 @@ export function publicEntry(row, me) {
 
 // ---------- users ----------
 
-export async function upsertUser(db, tgUser, { canNotify = false } = {}) {
+// Only call for members: an existing approved user, or someone who just redeemed an invite.
+export async function upsertUser(db, tgUser, { canNotify = false, invitedBy = null } = {}) {
   const now = Date.now();
   const username = tgUser.username || null;
   return db
     .prepare(
-      `INSERT INTO users (id, username, username_lc, first_name, last_name, photo_url, can_notify, created_at, seen_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+      `INSERT INTO users (id, username, username_lc, first_name, last_name, photo_url, can_notify, created_at, seen_at,
+                          approved_at, invited_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?8, ?9)
        ON CONFLICT (id) DO UPDATE SET
          username = excluded.username,
          username_lc = excluded.username_lc,
@@ -49,7 +51,9 @@ export async function upsertUser(db, tgUser, { canNotify = false } = {}) {
          last_name = excluded.last_name,
          photo_url = COALESCE(excluded.photo_url, users.photo_url),
          can_notify = MAX(users.can_notify, excluded.can_notify),
-         seen_at = excluded.seen_at
+         seen_at = excluded.seen_at,
+         approved_at = COALESCE(users.approved_at, excluded.approved_at),
+         invited_by = COALESCE(users.invited_by, excluded.invited_by)
        RETURNING *`
     )
     .bind(
@@ -60,7 +64,8 @@ export async function upsertUser(db, tgUser, { canNotify = false } = {}) {
       tgUser.last_name || null,
       tgUser.photo_url || null,
       canNotify ? 1 : 0,
-      now
+      now,
+      invitedBy
     )
     .first();
 }
@@ -86,7 +91,7 @@ export async function searchUsers(db, me, query) {
        FROM users u
        LEFT JOIN friendships f
          ON (f.user_a = MIN(u.id, ?1) AND f.user_b = MAX(u.id, ?1))
-       WHERE u.username_lc LIKE ?2 ESCAPE '\\' AND u.id != ?1
+       WHERE u.username_lc LIKE ?2 ESCAPE '\\' AND u.id != ?1 AND u.approved_at IS NOT NULL
        ORDER BY (u.username_lc = ?3) DESC, u.username_lc
        LIMIT 20`
     )
@@ -136,6 +141,19 @@ export async function deleteFriendship(db, me, other) {
   const [a, b] = pair(me, other);
   const result = await db.prepare("DELETE FROM friendships WHERE user_a = ?1 AND user_b = ?2").bind(a, b).run();
   return result.meta.changes > 0;
+}
+
+// Used by invites: the two people become friends right away.
+export function makeFriends(db, me, other, requestedBy) {
+  const [a, b] = pair(me, other);
+  return db
+    .prepare(
+      `INSERT INTO friendships (user_a, user_b, status, requested_by, created_at)
+       VALUES (?1, ?2, 'accepted', ?3, ?4)
+       ON CONFLICT (user_a, user_b) DO UPDATE SET status = 'accepted'`
+    )
+    .bind(a, b, requestedBy, Date.now())
+    .run();
 }
 
 export async function isFriend(db, me, other) {
@@ -265,7 +283,9 @@ export async function entriesWith(db, me, other, before) {
   return { entries: results.map((row) => publicEntry(row, me)), hasMore: results.length === PAGE };
 }
 
-export async function feed(db, me, before) {
+// Only entries the user takes part in; other people's debts are never visible.
+export async function feed(db, me, before, friendId) {
+  if (friendId) return entriesWith(db, me, friendId, before);
   const { results } = await db
     .prepare(
       `SELECT * FROM entries
@@ -275,4 +295,43 @@ export async function feed(db, me, before) {
     .bind(me, before || Number.MAX_SAFE_INTEGER, PAGE)
     .all();
   return { entries: results.map((row) => publicEntry(row, me)), hasMore: results.length === PAGE };
+}
+
+// ---------- invites ----------
+
+const INVITE_TTL = 7 * 24 * 60 * 60 * 1000;
+const INVITE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+
+function inviteCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(bytes, (byte) => INVITE_ALPHABET[byte % INVITE_ALPHABET.length]).join("");
+}
+
+export function countActiveInvites(db, me) {
+  return db
+    .prepare("SELECT COUNT(*) AS n FROM invites WHERE created_by = ?1 AND used_by IS NULL AND expires_at > ?2")
+    .bind(me, Date.now())
+    .first("n");
+}
+
+export function createInvite(db, me) {
+  const now = Date.now();
+  return db
+    .prepare("INSERT INTO invites (code, created_by, created_at, expires_at) VALUES (?1, ?2, ?3, ?4) RETURNING *")
+    .bind(inviteCode(), me, now, now + INVITE_TTL)
+    .first();
+}
+
+// Marks a fresh invite as used and returns its author's id, or null. Atomic, so a code works once.
+export function redeemInvite(db, code, userId) {
+  if (!/^[a-z0-9]{6,32}$/.test(code)) return null;
+  const now = Date.now();
+  return db
+    .prepare(
+      `UPDATE invites SET used_by = ?2, used_at = ?3
+       WHERE code = ?1 AND used_by IS NULL AND expires_at > ?3 AND created_by != ?2
+       RETURNING created_by`
+    )
+    .bind(code, userId, now)
+    .first("created_by");
 }

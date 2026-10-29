@@ -4,6 +4,8 @@ import { isCurrency, MAX_AMOUNT } from "../shared/money.js";
 import {
   acceptFriendRequest,
   balanceWith,
+  countActiveInvites,
+  createInvite,
   deleteFriendship,
   getEntry,
   getFriendship,
@@ -11,13 +13,17 @@ import {
   insertEntry,
   insertFriendRequest,
   isFriend,
+  makeFriends,
+  redeemInvite,
   softDeleteEntry,
+  upsertUser,
 } from "./db.js";
 import {
   entryCreatedText,
   entryDeletedText,
   friendAcceptedText,
   friendRequestText,
+  inviteUsedText,
 } from "./messages.js";
 import { notifyUser } from "./telegram.js";
 
@@ -30,6 +36,40 @@ export class HttpError extends Error {
 
 function background(ctx, promise) {
   ctx.waitUntil(promise.catch((error) => console.warn("notification failed", error)));
+}
+
+// ---------- access ----------
+
+// "inv_<code>" from a bot /start payload or a Mini App start_param.
+export function inviteCodeFrom(payload) {
+  const match = /^inv_([a-z0-9]{6,32})$/.exec(String(payload || "").trim());
+  return match ? match[1] : null;
+}
+
+// Lets in a member, or anyone with a valid invite (they become friends with its author).
+// Strangers get null and nothing about them is stored.
+export async function admitUser({ env, ctx, origin }, tgUser, { invite = null, canNotify = false } = {}) {
+  const existing = await getUser(env.DB, tgUser.id);
+  const inviterId = invite ? await redeemInvite(env.DB, invite, tgUser.id) : null;
+  if (!existing?.approved_at && !inviterId) return null;
+
+  const me = await upsertUser(env.DB, tgUser, { canNotify, invitedBy: inviterId });
+  if (inviterId) {
+    await makeFriends(env.DB, me.id, inviterId, inviterId);
+    const inviter = await getUser(env.DB, inviterId);
+    background(ctx, notifyUser(env, inviter, inviteUsedText(me), { origin }));
+  }
+  return me;
+}
+
+const MAX_ACTIVE_INVITES = 10;
+
+export async function newInvite({ env }, me) {
+  if ((await countActiveInvites(env.DB, me.id)) >= MAX_ACTIVE_INVITES) {
+    throw new HttpError(429, "У тебя уже 10 неиспользованных приглашений. Подожди, пока друзья ими воспользуются, или пока они истекут.");
+  }
+  const invite = await createInvite(env.DB, me.id);
+  return { link: `https://t.me/${env.BOT_USERNAME}?start=inv_${invite.code}`, expiresAt: invite.expires_at };
 }
 
 // ---------- friends ----------

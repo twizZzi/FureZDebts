@@ -78,9 +78,3 @@ export function plural(count, [one, few, many]) {
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
   return many;
 }
-
-export function shareBotUrl(bot) {
-  const url = `https://t.me/${bot}`;
-  const text = "Давай записывать наши долги здесь — найди меня по username и добавь в друзья.";
-  return `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
-}

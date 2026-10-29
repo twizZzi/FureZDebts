@@ -2,8 +2,9 @@ import { useMemo } from "react";
 import Icon from "../components/Icon";
 import FriendRow from "../components/FriendRow";
 import { Avatar, Empty } from "../components/ui";
-import { fullName, handle, shareBotUrl } from "../lib/format";
-import { confirmAction, haptic, openTelegramLink } from "../telegram";
+import { fullName, handle } from "../lib/format";
+import { shareInvite } from "../lib/invite";
+import { confirmAction, haptic } from "../telegram";
 import { useStore, useUi } from "../useStore";
 
 function RequestRow({ user, children }) {
@@ -22,7 +23,7 @@ function RequestRow({ user, children }) {
 export default function FriendsScreen() {
   const { state, mutate } = useStore();
   const { openSheet } = useUi();
-  const { friends, incoming, outgoing, bot } = state;
+  const { friends, incoming, outgoing } = state;
 
   const sorted = useMemo(
     () => [...friends].sort((a, b) => fullName(a).localeCompare(fullName(b), "ru")),
@@ -80,9 +81,13 @@ export default function FriendsScreen() {
         <section className="card">
           <Empty
             title="Добавь первого друга"
-            text="Найди его по @username. Искать можно тех, кто хотя бы раз открывал бота."
+            text="Бот закрытый: позови друга одноразовой ссылкой-приглашением — после входа вы сразу станете друзьями. Тех, кто уже в боте, можно найти по @username."
           />
-          <button type="button" className="primary-button" onClick={() => openSheet("search")}>
+          <button type="button" className="primary-button" onClick={shareInvite}>
+            <Icon name="share" size={18} />
+            Пригласить друга
+          </button>
+          <button type="button" className="secondary-button" onClick={() => openSheet("search")}>
             <Icon name="search" size={18} />
             Найти по @username
           </button>
@@ -104,10 +109,10 @@ export default function FriendsScreen() {
         </>
       )}
 
-      {bot && (
-        <button type="button" className="add-button" onClick={() => openTelegramLink(shareBotUrl(bot))}>
+      {friends.length > 0 && (
+        <button type="button" className="add-button" onClick={shareInvite}>
           <Icon name="share" size={18} />
-          Позвать друга в @{bot}
+          Пригласить друга
         </button>
       )}
     </>

@@ -2,10 +2,13 @@ import { Hono } from "hono";
 import { isCurrency } from "../shared/money.js";
 import {
   acceptFriend,
+  admitUser,
   createEntry,
   declineFriend,
   deleteEntry,
   HttpError,
+  inviteCodeFrom,
+  newInvite,
   removeFriend,
   requestFriend,
   settle,
@@ -23,7 +26,6 @@ import {
   searchUsers,
   setCanNotify,
   setDefaultCurrency,
-  upsertUser,
 } from "./db.js";
 
 const app = new Hono();
@@ -61,12 +63,19 @@ const api = new Hono();
 
 api.use("*", async (c, next) => {
   const header = c.req.header("authorization") || "";
-  let tgUser = null;
-  if (header.startsWith("tma ")) tgUser = await validateInitData(header.slice(4), c.env.BOT_TOKEN);
-  else if (c.env.DEV_MODE === "1") tgUser = DEV_USERS[c.req.header("x-dev-user")] || null;
-  if (!tgUser) return c.json({ error: "Открой приложение через Telegram" }, 401);
+  let auth = null;
+  if (header.startsWith("tma ")) auth = await validateInitData(header.slice(4), c.env.BOT_TOKEN);
+  else if (c.env.DEV_MODE === "1" && DEV_USERS[c.req.header("x-dev-user")]) {
+    auth = { user: DEV_USERS[c.req.header("x-dev-user")], startParam: c.req.header("x-dev-start") || null };
+  }
+  if (!auth) return c.json({ error: "Открой приложение через Telegram" }, 401);
 
-  c.set("me", await upsertUser(c.env.DB, tgUser, { canNotify: tgUser.allows_write_to_pm === true }));
+  const me = await admitUser(deps(c), auth.user, {
+    invite: inviteCodeFrom(auth.startParam),
+    canNotify: auth.user.allows_write_to_pm === true,
+  });
+  if (!me) return c.json({ error: "Это закрытый бот. Попроси у друга приглашение.", code: "invite_required" }, 403);
+  c.set("me", me);
   await next();
 });
 
@@ -102,6 +111,8 @@ api.post("/me/notifications", async (c) => {
   await setCanNotify(c.env.DB, c.get("me").id, true);
   return stateResponse(c);
 });
+
+api.post("/invites", async (c) => c.json(await newInvite(deps(c), c.get("me"))));
 
 api.get("/users/search", async (c) => {
   const query = String(c.req.query("q") || "")
@@ -153,7 +164,8 @@ api.post("/friends/:id/settle", async (c) => {
 });
 
 api.get("/feed", async (c) => {
-  const page = await feed(c.env.DB, c.get("me").id, cursor(c));
+  const friend = Number(c.req.query("friend"));
+  const page = await feed(c.env.DB, c.get("me").id, cursor(c), Number.isSafeInteger(friend) && friend > 0 ? friend : undefined);
   const ids = [...new Set(page.entries.map((entry) => entry.friendId))];
   let users = {};
   if (ids.length) {

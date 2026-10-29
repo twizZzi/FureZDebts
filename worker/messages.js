@@ -48,6 +48,21 @@ export function friendDeclinedText(from) {
   return `Заявка от ${who(from)} отклонена.`;
 }
 
+export function inviteUsedText(user) {
+  return `${who(user)} теперь здесь по твоему приглашению — вы уже друзья, можно записывать долги.`;
+}
+
+export function lockedText(inviteFailed) {
+  if (inviteFailed) {
+    return "Это приглашение уже использовано или устарело. Попроси у друга новую ссылку.";
+  }
+  return [
+    "Это закрытый бот для своих.",
+    "",
+    "Чтобы войти, попроси приглашение у друга, который уже пользуется ботом: в приложении на вкладке «Друзья» есть кнопка «Пригласить». Ссылка одноразовая и действует 7 дней.",
+  ].join("\n");
+}
+
 export function startText(user) {
   const lines = [
     `Привет, ${escapeHtml(user.first_name || "друг")}!`,

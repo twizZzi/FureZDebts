@@ -13,7 +13,9 @@ async function initData(fields, token = TOKEN) {
 const fresh = () => ({ auth_date: String(Math.floor(Date.now() / 1000)), query_id: "AAE", user: JSON.stringify(user) });
 
 test("accepts initData signed with the bot token", async () => {
-  assert.deepEqual(await validateInitData(await initData(fresh()), TOKEN), user);
+  assert.deepEqual(await validateInitData(await initData(fresh()), TOKEN), { user, startParam: null });
+  const withParam = await validateInitData(await initData({ ...fresh(), start_param: "inv_abc" }), TOKEN);
+  assert.equal(withParam.startParam, "inv_abc");
 });
 
 test("rejects a tampered user", async () => {

@@ -1,7 +1,7 @@
 // Webhook updates: /start registers the user, inline buttons answer friend requests.
-import { acceptFriend, declineFriend, HttpError } from "./actions.js";
-import { getUser, upsertUser } from "./db.js";
-import { friendAcceptedText, friendDeclinedText, startText } from "./messages.js";
+import { acceptFriend, admitUser, declineFriend, HttpError, inviteCodeFrom } from "./actions.js";
+import { getUser } from "./db.js";
+import { friendAcceptedText, friendDeclinedText, lockedText, startText } from "./messages.js";
 import { callBot, openAppKeyboard, sendText } from "./telegram.js";
 
 export async function handleUpdate(update, deps) {
@@ -9,12 +9,20 @@ export async function handleUpdate(update, deps) {
   else if (update.callback_query) await handleCallback(update.callback_query, deps);
 }
 
-async function handleMessage(message, { env, origin }) {
+async function handleMessage(message, deps) {
+  const { env, origin } = deps;
   if (message.chat?.type !== "private" || !message.from || message.from.is_bot) return;
-  // Writing to the bot means it may write back.
-  await upsertUser(env.DB, message.from, { canNotify: true });
 
-  const isStart = message.text?.startsWith("/start");
+  const [command, payload] = String(message.text || "").split(/\s+/);
+  const isStart = command === "/start";
+  const invite = isStart ? inviteCodeFrom(payload) : null;
+  // Writing to the bot means it may write back.
+  const me = await admitUser(deps, message.from, { invite, canNotify: true });
+
+  if (!me) {
+    await sendText(env, message.chat.id, lockedText(Boolean(invite)));
+    return;
+  }
   const text = isStart ? startText(message.from) : "Долги записываются в приложении — открой его кнопкой ниже.";
   await sendText(env, message.chat.id, text, openAppKeyboard(origin, "Открыть приложение"));
 }
@@ -25,7 +33,8 @@ async function handleCallback(query, deps) {
   let notice = "";
 
   if (scope === "fr" && query.message) {
-    const me = await upsertUser(env.DB, query.from, { canNotify: true });
+    const me = await admitUser(deps, query.from, { canNotify: true });
+    if (!me) return callBot(env, "answerCallbackQuery", { callback_query_id: query.id });
     const otherId = Number(rawId);
     const other = await getUser(env.DB, otherId);
     let text = "Заявка уже неактуальна.";

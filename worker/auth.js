@@ -29,7 +29,7 @@ export async function signInitData(fields, botToken) {
   return toHex(await hmac(secret, checkString));
 }
 
-// Returns the Telegram user from a valid initData string, or null.
+// Returns { user, startParam } from a valid initData string, or null.
 export async function validateInitData(initData, botToken, now = Date.now()) {
   if (!initData || !botToken) return null;
   const params = new URLSearchParams(initData);
@@ -47,7 +47,7 @@ export async function validateInitData(initData, botToken, now = Date.now()) {
 
   try {
     const user = JSON.parse(fields.user || "null");
-    return user && Number.isSafeInteger(user.id) ? user : null;
+    return user && Number.isSafeInteger(user.id) ? { user, startParam: fields.start_param || null } : null;
   } catch {
     return null;
   }
@@ -58,4 +58,7 @@ export const DEV_USERS = {
   1001: { id: 1001, first_name: "Рома", username: "roma_dev", allows_write_to_pm: false },
   1002: { id: 1002, first_name: "Петя", last_name: "Иванов", username: "petya_dev", allows_write_to_pm: false },
   1003: { id: 1003, first_name: "Аня", username: "anya_dev", allows_write_to_pm: false },
+  // Not members yet: they need an invite (?start=inv_<code>).
+  1004: { id: 1004, first_name: "Гость", username: "guest_dev", allows_write_to_pm: false },
+  1005: { id: 1005, first_name: "Чужой", username: "stranger_dev", allows_write_to_pm: false },
 };

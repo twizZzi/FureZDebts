@@ -12,16 +12,25 @@ function devUser() {
 }
 
 export class ApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code) {
     super(message);
     this.status = status;
+    this.code = code;
   }
+}
+
+// Local only: ?start=inv_<code> stands in for a Telegram start_param.
+function devStart() {
+  return new URLSearchParams(window.location.search).get("start");
 }
 
 export async function request(method, path, body) {
   const headers = { "content-type": "application/json" };
   if (isTelegram) headers.authorization = `tma ${getInitData()}`;
-  else headers["x-dev-user"] = devUser();
+  else {
+    headers["x-dev-user"] = devUser();
+    if (devStart()) headers["x-dev-start"] = devStart();
+  }
 
   let response;
   try {
@@ -35,7 +44,7 @@ export async function request(method, path, body) {
   }
 
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(response.status, data.error || "Что-то пошло не так");
+  if (!response.ok) throw new ApiError(response.status, data.error || "Что-то пошло не так", data.code);
   return data;
 }
 

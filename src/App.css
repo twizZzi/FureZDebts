@@ -1046,3 +1046,17 @@ html:not(.sheet-open) .browser-main-button {
 .profile-head > div {
   min-width: 0;
 }
+
+/* ========== Feed filter ========== */
+
+.screen > .feed-filter {
+  margin-top: -6px;
+}
+
+.feed-filter .filter-all {
+  color: var(--hint);
+}
+
+.feed-filter button.active .filter-all {
+  color: var(--text);
+}

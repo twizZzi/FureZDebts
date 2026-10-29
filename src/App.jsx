@@ -72,6 +72,19 @@ function Splash() {
   }
 
   const unauthorized = loadError.status === 401;
+  if (loadError.code === "invite_required") {
+    return (
+      <div className="splash">
+        <div className="empty">
+          <strong>Закрытый бот</strong>
+          <p>
+            Сюда пускают только по приглашению. Попроси друга, который уже пользуется ботом, отправить тебе
+            ссылку — она есть у него в приложении на вкладке «Друзья».
+          </p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="splash">
       <div className="empty">

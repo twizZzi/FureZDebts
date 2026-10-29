@@ -4,8 +4,9 @@ import Icon from "../components/Icon";
 import Sheet from "../components/Sheet";
 import { Avatar, Empty } from "../components/ui";
 import { useDebounced } from "../hooks";
-import { fullName, handle, shareBotUrl } from "../lib/format";
-import { haptic, openTelegramLink } from "../telegram";
+import { fullName, handle } from "../lib/format";
+import { shareInvite } from "../lib/invite";
+import { haptic } from "../telegram";
 import { useStore, useUi } from "../useStore";
 
 function normalize(text) {
@@ -69,8 +70,8 @@ export default function SearchSheet({ sheetKey }) {
 
       {tooShort ? (
         <p className="hint">
-          Введи username друга целиком или первые 3 буквы. Найти можно только тех, кто уже открывал
-          {state.bot ? ` @${state.bot}` : " бота"}.
+          Введи username друга целиком или первые 3 буквы. Найти можно только тех, кто уже в боте — новых
+          друзей зови приглашением.
         </p>
       ) : searching ? (
         <div className="card search-results">
@@ -117,16 +118,14 @@ export default function SearchSheet({ sheetKey }) {
         </div>
       ) : (
         <section className="card search-results">
-          <Empty title="Никого не нашли" text={`Никто с @${debounced} пока не открывал бота. Отправь другу ссылку — после запуска его можно будет найти.`} />
+          <Empty title="Никого не нашли" text={`Среди участников нет @${debounced}. Бот закрытый — отправь другу приглашение.`} />
         </section>
       )}
 
-      {state.bot && (
-        <button type="button" className="add-button" onClick={() => openTelegramLink(shareBotUrl(state.bot))}>
-          <Icon name="share" size={18} />
-          Отправить ссылку на бота
-        </button>
-      )}
+      <button type="button" className="add-button" onClick={shareInvite}>
+        <Icon name="share" size={18} />
+        Пригласить друга
+      </button>
     </Sheet>
   );
 }
