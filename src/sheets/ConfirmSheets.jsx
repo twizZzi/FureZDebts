@@ -4,24 +4,46 @@ import { formatMoney } from "../../shared/money.js";
 import Sheet from "../components/Sheet";
 import { Avatar, Empty } from "../components/ui";
 import { fullName, shortDate } from "../lib/format";
-import { confirmAction, haptic } from "../telegram";
+import { haptic } from "../telegram";
 import { useStore, useUi } from "../useStore";
 
-// One entry a friend recorded that waits for my answer.
+// One entry a friend recorded that waits for my answer. Answering takes two taps:
+// pick an option, then confirm it, so a stray tap changes nothing.
 function PendingCard({ entry, onDone }) {
   const { friendsById, mutate } = useStore();
+  const [choice, setChoice] = useState(null);
   const [busy, setBusy] = useState(false);
   const friend = friendsById.get(entry.friendId) || entry.friend;
   const balances = friendsById.get(entry.friendId)?.balances || [];
   const balance = balances.find((item) => item.currency === entry.currency)?.amount || 0;
   const offset = canOffset(entry.kind, entry.amount, balance);
-  const after = [{ currency: entry.currency, amount: balance + entry.amount }];
+  const after = balanceSummary([{ currency: entry.currency, amount: balance + entry.amount }]);
   const details = entryDetails(entry);
 
-  const respond = async (decision) => {
-    if (decision === "decline" && !(await confirmAction(`Отклонить запись от ${fullName(friend)}?`))) return;
+  const options = [
+    {
+      id: "confirm",
+      title: offset ? "Новый долг" : "Подтвердить",
+      text: offset ? `Добавится как новый долг. Станет: ${after}` : `Станет: ${after}`,
+    },
+    offset && {
+      id: "offset",
+      title: "Вычесть из долга",
+      text: `Уменьшит текущий долг и запишется как возврат. Станет: ${after}`,
+    },
+    { id: "decline", title: "Отклонить", text: "Запись не попадёт в баланс", destructive: true },
+  ].filter(Boolean);
+  const picked = options.find((option) => option.id === choice);
+
+  const pick = (id) => {
+    haptic.select();
+    setChoice((current) => (current === id ? null : id));
+  };
+
+  const submit = async () => {
+    if (!picked) return;
     setBusy(true);
-    const result = await mutate("POST", `/entries/${entry.id}/respond`, { decision });
+    const result = await mutate("POST", `/entries/${entry.id}/respond`, { decision: picked.id });
     setBusy(false);
     if (result) {
       haptic.success();
@@ -44,30 +66,35 @@ function PendingCard({ entry, onDone }) {
         {formatMoney(Math.abs(entry.amount), entry.currency)}
       </strong>
       {details && <p className="pending-details">{details}</p>}
-      <p className="hint">
-        Сейчас: {balanceSummary(balances.filter((item) => item.currency === entry.currency))}. После подтверждения:{" "}
-        <b>{balanceSummary(after)}</b>.
-      </p>
+      <p className="hint">Сейчас: {balanceSummary(balances.filter((item) => item.currency === entry.currency))}</p>
 
-      {offset ? (
-        <>
-          <div className="button-row">
-            <button type="button" className="primary-button" disabled={busy} onClick={() => respond("confirm")}>
-              Новый долг
-            </button>
-            <button type="button" className="secondary-button" disabled={busy} onClick={() => respond("offset")}>
-              Вычесть из долга
-            </button>
-          </div>
-          <p className="hint">«Вычесть из долга» — сумма не станет новым долгом, а уменьшит текущий и запишется как возврат.</p>
-        </>
-      ) : (
-        <button type="button" className="primary-button" disabled={busy} onClick={() => respond("confirm")}>
-          Подтвердить
-        </button>
-      )}
-      <button type="button" className="danger-link" disabled={busy} onClick={() => respond("decline")}>
-        Отклонить
+      <div className="choice-list" role="radiogroup" aria-label="Ответ на запись">
+        {options.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={choice === option.id}
+            className={`${choice === option.id ? "active" : ""} ${option.destructive ? "destructive" : ""}`}
+            disabled={busy}
+            onClick={() => pick(option.id)}
+          >
+            <span className="choice-dot" aria-hidden="true" />
+            <span>
+              <strong>{option.title}</strong>
+              <small>{option.text}</small>
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        className={`primary-button ${picked?.destructive ? "danger" : ""}`}
+        disabled={!picked || busy}
+        onClick={submit}
+      >
+        {busy ? "Сохраняю…" : picked ? `Подтвердить выбор: ${picked.title.toLowerCase()}` : "Выбери вариант"}
       </button>
     </section>
   );

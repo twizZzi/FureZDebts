@@ -261,23 +261,51 @@ export async function deleteEntries({ env, ctx, origin }, me, ids) {
   return entries.length;
 }
 
+// Bot buttons for a pending entry. The first tap (c/o/d) only picks an option;
+// the second tap (y + letter) answers, so one stray tap changes nothing.
+export function answerKeyboard(entryId, offset, origin) {
+  const first = offset
+    ? [
+        { text: "Новый долг", callback_data: `en:c:${entryId}` },
+        { text: "Вычесть из долга", callback_data: `en:o:${entryId}` },
+      ]
+    : [{ text: "Подтвердить", callback_data: `en:c:${entryId}` }];
+  const keyboard = [first, [{ text: "Отклонить", callback_data: `en:d:${entryId}` }]];
+  const open = openAppKeyboard(origin);
+  if (open) keyboard.push(...open.inline_keyboard);
+  return { inline_keyboard: keyboard };
+}
+
+const CONFIRM_LABELS = { c: "✓ Да, подтвердить", o: "✓ Да, вычесть из долга", d: "✕ Да, отклонить" };
+
+export function confirmChoiceKeyboard(entryId, choice) {
+  return {
+    inline_keyboard: [
+      [{ text: CONFIRM_LABELS[choice], callback_data: `en:y${choice}:${entryId}` }],
+      [{ text: "← Назад", callback_data: `en:b:${entryId}` }],
+    ],
+  };
+}
+
+// Whether `me` can still answer this entry, and whether "offset" applies to it.
+export async function pendingAnswer(env, me, entryId) {
+  const entry = await getEntry(env.DB, entryId);
+  if (!entry || entry.status !== "pending" || entry.created_by === me.id) return null;
+  if (entry.creditor_id !== me.id && entry.debtor_id !== me.id) return null;
+  const view = publicEntry(entry, me.id);
+  const balances = await balanceWith(env.DB, me.id, entry.created_by);
+  const balance = balances.find((item) => item.currency === view.currency)?.amount || 0;
+  return { offset: canOffset(entry.kind, view.amount, balance) };
+}
+
 async function askToConfirm(env, origin, entry, actor, friendId) {
   const [friend, balances] = await Promise.all([getUser(env.DB, friendId), balanceWith(env.DB, friendId, actor.id)]);
   const view = publicEntry(entry, friendId);
   const balance = balances.find((item) => item.currency === view.currency)?.amount || 0;
   const offset = canOffset(entry.kind, view.amount, balance);
-  const answer = offset
-    ? [
-        { text: "Новый долг", callback_data: `en:c:${entry.id}` },
-        { text: "Вычесть из долга", callback_data: `en:o:${entry.id}` },
-      ]
-    : [{ text: "Подтвердить", callback_data: `en:c:${entry.id}` }];
-  const keyboard = [answer, [{ text: "Отклонить", callback_data: `en:d:${entry.id}` }]];
-  const open = openAppKeyboard(origin);
-  if (open) keyboard.push(...open.inline_keyboard);
 
   await notifyUser(env, friend, entryPendingText(entry, actor, friendId, balances, offset), {
-    replyMarkup: { inline_keyboard: keyboard },
+    replyMarkup: answerKeyboard(entry.id, offset, origin),
   });
 }
 
