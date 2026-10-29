@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "furez-debts",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-20",
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/bot/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "furez-debts",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "BOT_USERNAME": "FureZDebtsBot"
+  },
+  // BOT_TOKEN and WEBHOOK_SECRET are secrets: `wrangler secret put`, locally in .dev.vars.
+  "observability": { "enabled": true }
+}

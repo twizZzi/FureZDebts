@@ -1,0 +1,5 @@
+# Copy to .dev.vars for `npm run dev`. Never commit .dev.vars.
+# DEV_MODE=1 lets the browser act as fake users (?dev=1001), only locally.
+DEV_MODE=1
+BOT_TOKEN=
+WEBHOOK_SECRET=
