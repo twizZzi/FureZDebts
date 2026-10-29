@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { CURRENCIES, currencySymbol, formatMoney, parseAmount } from "../../shared/money.js";
-import { balanceLabel } from "../../shared/labels.js";
+import { balanceLabel, PAYMENT_METHODS } from "../../shared/labels.js";
+import Icon from "../components/Icon";
 import Sheet from "../components/Sheet";
 import { Avatar, Chips, Segmented } from "../components/ui";
 import { useMainButton } from "../hooks";
@@ -30,9 +31,11 @@ function directionOf(kind, side) {
   return side === "toMe" ? "i_owe" : "they_owe";
 }
 
+const METHOD_OPTIONS = PAYMENT_METHODS.map((method) => ({ id: method.id, title: method.title }));
+
 export default function EntrySheet({ sheetKey, friendId: presetFriendId }) {
   const { state, friendsById, mutate } = useStore();
-  const { closeSheet } = useUi();
+  const { closeSheet, openSheet } = useUi();
   const { me, friends } = state;
 
   const [friendId, setFriendId] = useState(presetFriendId ?? friends[0]?.id ?? null);
@@ -49,11 +52,13 @@ export default function EntrySheet({ sheetKey, friendId: presetFriendId }) {
   const [side, setSide] = useState("toMe");
   const [amountText, setAmountText] = useState("");
   const [note, setNote] = useState("");
+  const [category, setCategory] = useState(null);
+  const [method, setMethod] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const amount = parseAmount(amountText);
-  // A debt needs a reason, a return does not.
-  const noteMissing = kind === "debt" && !note.trim();
+  // A debt needs a reason; a return only when it was paid with a purchase.
+  const noteMissing = (kind === "debt" || method === "purchase") && !note.trim();
   const ready = Boolean(amount && friend) && !noteMissing && !saving;
   const direction = directionOf(kind, side);
   const after = amount ? balance + (direction === "they_owe" ? amount : -amount) : balance;
@@ -82,6 +87,8 @@ export default function EntrySheet({ sheetKey, friendId: presetFriendId }) {
       amount,
       currency,
       note: note.trim(),
+      category: kind === "debt" ? category : null,
+      method: kind === "payment" ? method : null,
     });
     setSaving(false);
     if (result) {
@@ -91,7 +98,13 @@ export default function EntrySheet({ sheetKey, friendId: presetFriendId }) {
   };
 
   useMainButton({
-    text: saving ? "Сохраняю…" : amount && noteMissing ? "Напиши, за что долг" : "Сохранить",
+    text: saving
+      ? "Сохраняю…"
+      : amount && noteMissing
+        ? kind === "debt"
+          ? "Напиши, за что долг"
+          : "Напиши, что куплено"
+        : "Отправить на подтверждение",
     onClick: save,
     enabled: ready,
   });
@@ -143,15 +156,41 @@ export default function EntrySheet({ sheetKey, friendId: presetFriendId }) {
       <input
         className={`field note-input ${amount && noteMissing ? "required" : ""}`}
         maxLength={200}
-        placeholder={kind === "debt" ? "За что — обязательно" : "Комментарий — необязательно"}
+        placeholder={
+          kind === "debt"
+            ? "За что — обязательно"
+            : method === "purchase"
+              ? "Что куплено — обязательно"
+              : "Комментарий — необязательно"
+        }
         value={note}
         onChange={(event) => setNote(event.target.value)}
         onKeyDown={(event) => event.key === "Enter" && save()}
       />
 
+      {kind === "debt" ? (
+        <button
+          type="button"
+          className={`field select-field ${category ? "" : "placeholder"}`}
+          onClick={() => openSheet("category", { value: category, onSelect: setCategory })}
+        >
+          <span>{category || "Категория — необязательно"}</span>
+          <Icon name="chevronRight" size={18} />
+        </button>
+      ) : (
+        <>
+          <p className="field-caption">Как вернули — необязательно</p>
+          <Chips
+            options={METHOD_OPTIONS}
+            value={method}
+            onChange={(id) => setMethod((current) => (current === id ? null : id))}
+          />
+        </>
+      )}
+
       {friend && (
         <p className="hint entry-preview">
-          {amount ? "После записи" : "Сейчас"}: {fullName(friend)} —{" "}
+          {amount ? "После подтверждения" : "Сейчас"}: {fullName(friend)} —{" "}
           <b className={after < 0 ? "negative" : ""}>
             {after === 0 ? "в расчёте" : `${balanceLabel(after)} ${formatMoney(Math.abs(after), currency)}`}
           </b>

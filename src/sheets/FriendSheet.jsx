@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatMoney } from "../../shared/money.js";
-import { balanceLabel, entryLabel } from "../../shared/labels.js";
+import { balanceLabel, entryDetails, entryLabel } from "../../shared/labels.js";
 import { api } from "../api";
 import EntryList from "../components/EntryList";
 import Icon from "../components/Icon";
@@ -8,7 +8,7 @@ import Sheet from "../components/Sheet";
 import { Avatar, Empty } from "../components/ui";
 import { useMainButton } from "../hooks";
 import { fullName, handle, shortDate } from "../lib/format";
-import { confirmAction, haptic, showAlert } from "../telegram";
+import { confirmAction, showAlert } from "../telegram";
 import { useStore, useUi } from "../useStore";
 
 export default function FriendSheet({ sheetKey, friendId }) {
@@ -41,22 +41,7 @@ export default function FriendSheet({ sheetKey, friendId }) {
     visible: isFriend,
   });
 
-  const settleCurrency = async (balance) => {
-    const amount = formatMoney(Math.abs(balance.amount), balance.currency);
-    if (!(await confirmAction(`Отметить долг ${amount} с ${name} как полностью погашенный?`))) return;
-    if (await mutate("POST", `/friends/${friendId}/settle`, { currency: balance.currency })) haptic.success();
-  };
-
-  const settle = () => {
-    if (balances.length === 1) return settleCurrency(balances[0]);
-    openSheet("actions", {
-      title: "Какой долг погасить?",
-      actions: balances.map((balance) => ({
-        label: `${balanceLabel(balance.amount)} ${formatMoney(Math.abs(balance.amount), balance.currency)}`,
-        onClick: () => settleCurrency(balance),
-      })),
-    });
-  };
+  const settle = () => openSheet("settle", { friendId });
 
   const removeFriend = async () => {
     if (balances.length) {
@@ -69,15 +54,21 @@ export default function FriendSheet({ sheetKey, friendId }) {
 
   const selectEntry = (entry) => {
     const title = `${entryLabel(entry.kind, entry.amount)} ${formatMoney(Math.abs(entry.amount), entry.currency)}`;
+    const mine = entry.createdBy !== friendId;
+    const waitsForMe = entry.status === "pending" && !mine;
+    const deleteLabel = entry.status === "pending" && mine ? "Отменить запись" : "Удалить запись";
     openSheet("actions", {
       title,
-      subtitle: [shortDate(entry.createdAt), entry.createdBy === friendId ? `записано: ${name}` : "записано тобой"].join(" · "),
+      subtitle: [shortDate(entry.createdAt), entryDetails(entry), mine ? "записано тобой" : `записано: ${name}`]
+        .filter(Boolean)
+        .join(" · "),
       actions: [
+        ...(waitsForMe ? [{ label: "Подтвердить или отклонить", onClick: () => openSheet("confirm", { entryId: entry.id }) }] : []),
         {
-          label: "Удалить запись",
+          label: deleteLabel,
           destructive: true,
           onClick: async () => {
-            if (await confirmAction(`Удалить «${title}»? ${name} получит уведомление.`)) {
+            if (await confirmAction(`${deleteLabel}: «${title}»? ${name} получит уведомление.`)) {
               mutate("DELETE", `/entries/${entry.id}`);
             }
           },

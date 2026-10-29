@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { formatMoney } from "../../shared/money.js";
 import { balanceLabel } from "../../shared/labels.js";
 import { fullName, initials } from "../lib/format";
@@ -108,6 +108,31 @@ export function BrowserMainButton() {
     <div className="browser-main-button">
       <button type="button" disabled={mainButton.enabled === false} onClick={triggerMainButton}>
         {mainButton.text}
+      </button>
+    </div>
+  );
+}
+
+// Main action of a tab screen, floating just above the bottom navigation.
+// (Telegram's own MainButton sits below the navigation, which is easy to miss.)
+export function ScreenAction({ children, onClick, disabled = false, danger = false }) {
+  useEffect(() => {
+    document.documentElement.classList.add("has-screen-action");
+    return () => document.documentElement.classList.remove("has-screen-action");
+  }, []);
+
+  return (
+    <div className="screen-action">
+      <button
+        type="button"
+        className={danger ? "danger" : ""}
+        disabled={disabled}
+        onClick={() => {
+          haptic.tap();
+          onClick();
+        }}
+      >
+        {children}
       </button>
     </div>
   );

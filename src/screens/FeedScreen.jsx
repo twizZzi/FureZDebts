@@ -3,10 +3,17 @@ import { balanceSummary } from "../../shared/labels.js";
 import { api } from "../api";
 import EntryList from "../components/EntryList";
 import Icon from "../components/Icon";
-import { Avatar, Empty } from "../components/ui";
-import { fullName } from "../lib/format";
-import { haptic, showAlert } from "../telegram";
+import { Avatar, Empty, ScreenAction } from "../components/ui";
+import { useLayer } from "../hooks";
+import { fullName, plural } from "../lib/format";
+import { confirmAction, haptic, showAlert } from "../telegram";
 import { useStore, useUi } from "../useStore";
+
+// While picking entries, Telegram's Back button leaves selection mode.
+function SelectionBack({ onBack }) {
+  useLayer(0, onBack);
+  return null;
+}
 
 const EMPTY_PAGE = { entries: [], users: {}, hasMore: false, loaded: false, error: null, filter: null };
 
@@ -19,11 +26,12 @@ function feedPath(filter, before) {
 }
 
 export default function FeedScreen() {
-  const { state, version, friendsById } = useStore();
+  const { state, version, friendsById, mutate } = useStore();
   const { openSheet } = useUi();
   const [filter, setFilter] = useState(null); // friend id or null for everyone
   const [page, setPage] = useState(EMPTY_PAGE);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [picked, setPicked] = useState(null); // Set of entry ids while selecting, otherwise null
 
   // A friend that was removed drops out of the filter.
   const activeFilter = filter && friendsById.has(filter) ? filter : null;
@@ -62,7 +70,44 @@ export default function FeedScreen() {
 
   const choose = (id) => {
     haptic.select();
+    setPicked(null);
     setFilter(id);
+  };
+
+  const selection = {
+    active: Boolean(picked),
+    ids: picked || new Set(),
+    start: (id) => setPicked(new Set([id])),
+    toggle: (id) => {
+      haptic.select();
+      setPicked((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next.size ? next : null;
+      });
+    },
+  };
+
+  const selectAll = () => {
+    haptic.select();
+    setPicked(new Set(page.entries.map((entry) => entry.id)));
+  };
+
+  const deletePicked = async () => {
+    const count = picked.size;
+    const words = plural(count, ["запись", "записи", "записей"]);
+    if (!(await confirmAction(`Удалить ${count} ${words}? Друзья получат уведомление.`))) return;
+    if (await mutate("POST", "/entries/delete", { ids: [...picked] })) {
+      haptic.success();
+      setPicked(null);
+    }
+  };
+
+  const openEntry = (entry) => {
+    const waitsForMe = entry.status === "pending" && entry.createdBy !== state.me.id;
+    if (waitsForMe) openSheet("confirm", { entryId: entry.id });
+    else openSheet("friend", { friendId: entry.friendId });
   };
 
   const userFor = useCallback((id) => friendsById.get(id) || page.users[id], [friendsById, page.users]);
@@ -72,10 +117,23 @@ export default function FeedScreen() {
     <>
       <header className="screen-header">
         <div>
-          <p className="eyebrow">{selected ? `С ${fullName(selected)}` : "Только твои записи"}</p>
+          <p className="eyebrow">
+            {picked ? `Выбрано: ${picked.size}` : selected ? `С ${fullName(selected)}` : "Только твои записи"}
+          </p>
           <h1>Лента</h1>
         </div>
+        {picked && (
+          <div className="header-actions">
+            <button type="button" className="text-button" onClick={selectAll}>
+              Все
+            </button>
+            <button type="button" className="text-button muted-button" onClick={() => setPicked(null)}>
+              Отмена
+            </button>
+          </div>
+        )}
       </header>
+      {picked && <SelectionBack onBack={() => setPicked(null)} />}
 
       {state.friends.length > 0 && (
         <div className="friend-picker feed-filter" role="tablist" aria-label="Фильтр по другу">
@@ -133,17 +191,21 @@ export default function FeedScreen() {
         </section>
       ) : (
         <>
-          <EntryList
-            entries={page.entries}
-            users={userFor}
-            onSelect={(entry) => openSheet("friend", { friendId: entry.friendId })}
-          />
+          <EntryList entries={page.entries} users={userFor} onSelect={openEntry} selection={selection} />
           {page.hasMore && (
             <button type="button" className="secondary-button" disabled={loadingMore} onClick={loadMore}>
               {loadingMore ? "Загружаю…" : "Показать ещё"}
             </button>
           )}
+          {!picked && <p className="footer-note">Зажми запись, чтобы выбрать несколько и удалить</p>}
         </>
+      )}
+
+      {picked && (
+        <ScreenAction danger onClick={deletePicked}>
+          <Icon name="trash" size={18} />
+          Удалить {picked.size} {plural(picked.size, ["запись", "записи", "записей"])}
+        </ScreenAction>
       )}
     </>
   );

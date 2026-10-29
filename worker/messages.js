@@ -1,6 +1,6 @@
 // Bot message texts (HTML parse mode), written from the recipient's side.
 import { formatMoney } from "../shared/money.js";
-import { balanceSummary, entryLabel } from "../shared/labels.js";
+import { balanceSummary, entryDetails, entryLabel } from "../shared/labels.js";
 import { displayName, publicEntry } from "./db.js";
 
 export function escapeHtml(text) {
@@ -14,26 +14,59 @@ function who(user) {
 
 function entryLine(entry, recipientId) {
   const view = publicEntry(entry, recipientId);
-  const note = view.note ? ` — ${escapeHtml(view.note)}` : "";
-  return `${entryLabel(view.kind, view.amount)}: ${formatMoney(Math.abs(view.amount), view.currency)}${note}`;
+  const details = entryDetails(view);
+  return `${entryLabel(view.kind, view.amount)}: ${formatMoney(Math.abs(view.amount), view.currency)}${
+    details ? ` — ${escapeHtml(details)}` : ""
+  }`;
 }
 
-export function entryCreatedText(entry, actor, recipientId, balances) {
-  return [
-    `${who(actor)} · новая запись`,
+// Sent to the other side right after an entry is recorded; buttons come with it.
+export function entryPendingText(entry, actor, recipientId, balances, offset) {
+  const lines = [
+    `${who(actor)} · новая запись, нужно подтверждение`,
     entryLine(entry, recipientId),
     "",
+    `Сейчас: ${balanceSummary(balances)}`,
+  ];
+  if (offset) lines.push("«Вычесть из долга» — сумма не станет новым долгом, а уменьшит текущий.");
+  return lines.join("\n");
+}
+
+const RESPONSES = {
+  confirm: "запись подтверждена",
+  offset: "засчитано в счёт долга",
+  decline: "запись отклонена",
+};
+
+// To the author, after the other side answered.
+export function entryRespondedText(entry, responder, recipientId, balances, decision) {
+  const line = entryLine(entry, recipientId);
+  return [
+    `${who(responder)} · ${RESPONSES[decision]}`,
+    decision === "decline" ? `<s>${line}</s>` : line,
+    "",
     `Итого: ${balanceSummary(balances)}`,
   ].join("\n");
 }
 
-export function entryDeletedText(entry, actor, recipientId, balances) {
+// Replaces the buttons message for the person who answered.
+export function entryAnsweredText(entry, recipientId, balances, decision) {
+  const line = entryLine(entry, recipientId);
+  const mark = decision === "decline" ? "✕ Отклонено" : decision === "offset" ? "✓ Засчитано в счёт долга" : "✓ Подтверждено";
+  return [mark, decision === "decline" ? `<s>${line}</s>` : line, "", `Итого: ${balanceSummary(balances)}`].join("\n");
+}
+
+export function entriesDeletedText(entries, actor, recipientId, balances) {
+  const header = entries.length === 1 ? "запись удалена" : `удалено записей: ${entries.length}`;
   return [
-    `${who(actor)} · запись удалена`,
-    `<s>${entryLine(entry, recipientId)}</s>`,
+    `${who(actor)} · ${header}`,
+    ...entries.slice(0, 10).map((entry) => `<s>${entryLine(entry, recipientId)}</s>`),
+    entries.length > 10 ? `…и ещё ${entries.length - 10}` : null,
     "",
     `Итого: ${balanceSummary(balances)}`,
-  ].join("\n");
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
 }
 
 export function friendRequestText(from) {

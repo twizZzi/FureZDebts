@@ -2,8 +2,7 @@ import { useMemo } from "react";
 import { formatMoney } from "../../shared/money.js";
 import Icon from "../components/Icon";
 import FriendRow from "../components/FriendRow";
-import { Avatar, Empty } from "../components/ui";
-import { useMainButton } from "../hooks";
+import { Avatar, Empty, ScreenAction } from "../components/ui";
 import { plural, totals } from "../lib/format";
 import { useStore, useUi } from "../useStore";
 
@@ -27,17 +26,11 @@ function SummaryColumn({ label, items, negative = false }) {
 export default function BalanceScreen() {
   const { state } = useStore();
   const { openSheet, setTab } = useUi();
-  const { me, friends, incoming } = state;
+  const { me, friends, incoming, pendingIncoming } = state;
 
   const { owedToMe, iOwe } = useMemo(() => totals(friends), [friends]);
   const withDebts = friends.filter((friend) => friend.balances.length);
   const settled = friends.length - withDebts.length;
-
-  useMainButton({
-    text: "Записать долг",
-    onClick: () => openSheet("entry"),
-    visible: friends.length > 0,
-  });
 
   return (
     <>
@@ -50,6 +43,16 @@ export default function BalanceScreen() {
           <Avatar user={me} />
         </button>
       </header>
+
+      {pendingIncoming.length > 0 && (
+        <button type="button" className="notice notice-button notice-accent" onClick={() => openSheet("pending")}>
+          <span>
+            Ждут твоего подтверждения: {pendingIncoming.length}{" "}
+            {plural(pendingIncoming.length, ["запись", "записи", "записей"])}
+          </span>
+          <Icon name="chevronRight" />
+        </button>
+      )}
 
       <section className="card summary">
         <SummaryColumn label="Тебе должны" items={owedToMe} />
@@ -78,7 +81,7 @@ export default function BalanceScreen() {
         </section>
       ) : withDebts.length === 0 ? (
         <section className="card">
-          <Empty title="Все в расчёте" text="Открытых долгов нет. Новую запись можно добавить кнопкой внизу." />
+          <Empty title="Все в расчёте" text="Открытых долгов нет. Новую запись можно добавить кнопкой ниже." />
         </section>
       ) : (
         <>
@@ -95,6 +98,13 @@ export default function BalanceScreen() {
         <p className="footer-note">
           Ещё {settled} {plural(settled, ["друг", "друга", "друзей"])} в расчёте
         </p>
+      )}
+
+      {friends.length > 0 && (
+        <ScreenAction onClick={() => openSheet("entry")}>
+          <Icon name="plus" size={20} />
+          Записать долг
+        </ScreenAction>
       )}
     </>
   );

@@ -5,19 +5,22 @@ import {
   admitUser,
   createEntry,
   declineFriend,
-  deleteEntry,
+  deleteEntries,
   HttpError,
   inviteCodeFrom,
   newInvite,
   removeFriend,
   requestFriend,
+  respondEntry,
   settle,
 } from "./actions.js";
 import { DEV_USERS, validateInitData } from "./auth.js";
 import { handleUpdate } from "./bot.js";
 import {
+  addCategory,
   balanceWith,
   buildState,
+  deleteCategory,
   entriesWith,
   feed,
   getFriendship,
@@ -159,7 +162,7 @@ api.get("/friends/:id/entries", async (c) => {
 
 api.post("/friends/:id/settle", async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  await settle(deps(c), c.get("me"), idParam(c), String(body.currency || ""));
+  await settle(deps(c), c.get("me"), idParam(c), body);
   return stateResponse(c);
 });
 
@@ -183,8 +186,34 @@ api.post("/entries", async (c) => {
   return stateResponse(c, { entryId: entry.id });
 });
 
+api.post("/entries/:id/respond", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  await respondEntry(deps(c), c.get("me"), idParam(c), String(body.decision || ""));
+  return stateResponse(c);
+});
+
 api.delete("/entries/:id", async (c) => {
-  await deleteEntry(deps(c), c.get("me"), idParam(c));
+  await deleteEntries(deps(c), c.get("me"), [idParam(c)]);
+  return stateResponse(c);
+});
+
+api.post("/entries/delete", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!Array.isArray(body.ids) || !body.ids.length) throw new HttpError(400, "Не выбраны записи");
+  const deleted = await deleteEntries(deps(c), c.get("me"), body.ids);
+  return stateResponse(c, { deleted });
+});
+
+api.post("/categories", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const name = String(body.name || "").trim().replace(/\s+/g, " ").slice(0, 40);
+  if (!name) throw new HttpError(400, "Название категории пустое");
+  await addCategory(c.env.DB, c.get("me").id, name);
+  return stateResponse(c);
+});
+
+api.delete("/categories/:id", async (c) => {
+  await deleteCategory(c.env.DB, c.get("me").id, idParam(c));
   return stateResponse(c);
 });
 

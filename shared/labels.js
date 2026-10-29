@@ -19,3 +19,32 @@ export function balanceSummary(balances) {
   if (!nonZero.length) return "в расчёте";
   return nonZero.map((item) => `${balanceLabel(item.amount)} ${formatMoney(Math.abs(item.amount), item.currency)}`).join(", ");
 }
+
+// How a return was paid.
+export const PAYMENT_METHODS = [
+  { id: "card", title: "На карту" },
+  { id: "cash", title: "Наличными" },
+  { id: "purchase", title: "Покупкой" },
+  { id: "other", title: "Другое" },
+];
+
+export function isPaymentMethod(id) {
+  return PAYMENT_METHODS.some((method) => method.id === id);
+}
+
+export function methodLabel(id) {
+  return PAYMENT_METHODS.find((method) => method.id === id)?.title.toLowerCase() || null;
+}
+
+// Offered to everyone; people add their own on top.
+export const DEFAULT_CATEGORIES = ["Бургер Кинг", "Заправка", "Энергос", "Продукты", "Кафе", "Такси", "Развлечения", "Подарки"];
+
+// "Бургер Кинг · Воппер" or "наличными · вернул за кино": the parts after the label.
+export function entryDetails(entry) {
+  return [entry.category, methodLabel(entry.method), entry.note].filter(Boolean).join(" · ");
+}
+
+// A debt the other side wants to confirm "as an offset": it runs against the current balance.
+export function canOffset(kind, amount, balance) {
+  return kind === "debt" && balance !== 0 && Math.sign(balance) !== Math.sign(amount);
+}

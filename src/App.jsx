@@ -16,6 +16,9 @@ import EntrySheet from "./sheets/EntrySheet";
 import SearchSheet from "./sheets/SearchSheet";
 import SettingsSheet from "./sheets/SettingsSheet";
 import ActionsSheet from "./sheets/ActionsSheet";
+import CategorySheet from "./sheets/CategorySheet";
+import SettleSheet from "./sheets/SettleSheet";
+import { ConfirmSheet, PendingSheet } from "./sheets/ConfirmSheets";
 
 const TABS = [
   { id: "balance", title: "Долги", icon: "wallet", Screen: BalanceScreen },
@@ -29,12 +32,19 @@ const SHEETS = {
   search: SearchSheet,
   settings: SettingsSheet,
   actions: ActionsSheet,
+  category: CategorySheet,
+  settle: SettleSheet,
+  confirm: ConfirmSheet,
+  pending: PendingSheet,
 };
+
+// Tabs built from the shared state reload it on every visit; the feed fetches on its own.
+const REFRESH_ON_VISIT = new Set(["balance", "friends"]);
 
 function BottomNav() {
   const { tab, setTab } = useUi();
-  const { state } = useStore();
-  const requests = state?.incoming.length || 0;
+  const { state, refresh } = useStore();
+  const badges = { friends: state?.incoming.length || 0, balance: state?.pendingIncoming.length || 0 };
 
   return (
     <nav className="bottom-nav">
@@ -45,13 +55,14 @@ function BottomNav() {
           className={tab === item.id ? "active" : ""}
           onClick={() => {
             if (tab !== item.id) haptic.select();
+            if (REFRESH_ON_VISIT.has(item.id)) refresh();
             setTab(item.id);
             window.scrollTo({ top: 0 });
           }}
         >
           <span className="nav-icon">
             <Icon name={item.icon} size={22} />
-            {item.id === "friends" && requests > 0 && <i className="nav-badge">{requests}</i>}
+            {badges[item.id] > 0 && <i className="nav-badge">{badges[item.id]}</i>}
           </span>
           <span>{item.title}</span>
         </button>

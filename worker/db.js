@@ -28,6 +28,9 @@ export function publicEntry(row, me) {
     currency: row.currency,
     kind: row.kind,
     note: row.note || null,
+    category: row.category || null,
+    method: row.method || null,
+    status: row.status,
     createdBy: row.created_by,
     createdAt: row.created_at,
   };
@@ -171,7 +174,7 @@ export async function balancesByFriend(db, me) {
               SUM(CASE WHEN creditor_id = ?1 THEN amount ELSE -amount END) AS amount,
               MAX(created_at) AS last_at
        FROM entries
-       WHERE (creditor_id = ?1 OR debtor_id = ?1) AND deleted_at IS NULL
+       WHERE (creditor_id = ?1 OR debtor_id = ?1) AND deleted_at IS NULL AND status = 'confirmed'
        GROUP BY friend_id, currency`
     )
     .bind(me)
@@ -193,7 +196,7 @@ export async function balanceWith(db, me, other) {
       `SELECT currency, SUM(CASE WHEN creditor_id = ?1 THEN amount ELSE -amount END) AS amount
        FROM entries
        WHERE ((creditor_id = ?1 AND debtor_id = ?2) OR (creditor_id = ?2 AND debtor_id = ?1))
-         AND deleted_at IS NULL
+         AND deleted_at IS NULL AND status = 'confirmed'
        GROUP BY currency`
     )
     .bind(me, other)
@@ -204,7 +207,7 @@ export async function balanceWith(db, me, other) {
 // Everything the app shows on its main tabs, in one round trip.
 export async function buildState(db, meRow, botUsername) {
   const me = meRow.id;
-  const [{ results: rows }, balances] = await Promise.all([
+  const [{ results: rows }, balances, pendingIncoming, categories] = await Promise.all([
     db
       .prepare(
         `SELECT u.*, f.status, f.requested_by, f.created_at AS since
@@ -215,6 +218,8 @@ export async function buildState(db, meRow, botUsername) {
       .bind(me)
       .all(),
     balancesByFriend(db, me),
+    pendingFor(db, me),
+    listCategories(db, me),
   ]);
 
   const friends = [];
@@ -241,31 +246,74 @@ export async function buildState(db, meRow, botUsername) {
     friends,
     incoming,
     outgoing,
+    pendingIncoming,
+    categories,
     bot: botUsername || null,
   };
 }
 
 // ---------- entries ----------
 
-export function insertEntry(db, { creditorId, debtorId, amount, currency, kind, note, createdBy }) {
+// New entries start as pending: they count only after the other side confirms.
+export function insertEntry(db, { creditorId, debtorId, amount, currency, kind, note, category, method, createdBy }) {
   return db
     .prepare(
-      `INSERT INTO entries (creditor_id, debtor_id, amount, currency, kind, note, created_by, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING *`
+      `INSERT INTO entries (creditor_id, debtor_id, amount, currency, kind, note, category, method, created_by, created_at, status)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending') RETURNING *`
     )
-    .bind(creditorId, debtorId, amount, currency, kind, note || null, createdBy, Date.now())
+    .bind(creditorId, debtorId, amount, currency, kind, note || null, category || null, method || null, createdBy, Date.now())
     .first();
+}
+
+// Only the participant who did not create a pending entry can answer it, once.
+export function respondToEntry(db, id, me, { status, kind }) {
+  return db
+    .prepare(
+      `UPDATE entries SET status = ?3, kind = ?4, responded_at = ?5
+       WHERE id = ?1 AND status = 'pending' AND deleted_at IS NULL
+         AND created_by != ?2 AND (creditor_id = ?2 OR debtor_id = ?2)
+       RETURNING *`
+    )
+    .bind(id, me, status, kind, Date.now())
+    .first();
+}
+
+// Entries friends recorded that wait for my answer, with the friend's profile attached.
+export async function pendingFor(db, me) {
+  const { results } = await db
+    .prepare(
+      `SELECT e.*, u.id AS u_id, u.username AS u_username, u.first_name AS u_first_name,
+              u.last_name AS u_last_name, u.photo_url AS u_photo_url
+       FROM entries e JOIN users u ON u.id = e.created_by
+       WHERE e.status = 'pending' AND e.deleted_at IS NULL AND e.created_by != ?1
+         AND (e.creditor_id = ?1 OR e.debtor_id = ?1)
+       ORDER BY e.id DESC LIMIT 50`
+    )
+    .bind(me)
+    .all();
+  return results.map((row) => ({
+    ...publicEntry(row, me),
+    friend: publicUser({
+      id: row.u_id,
+      username: row.u_username,
+      first_name: row.u_first_name,
+      last_name: row.u_last_name,
+      photo_url: row.u_photo_url,
+    }),
+  }));
+}
+
+export async function getEntries(db, ids) {
+  if (!ids.length) return [];
+  const { results } = await db
+    .prepare(`SELECT * FROM entries WHERE deleted_at IS NULL AND id IN (${ids.map(() => "?").join(",")})`)
+    .bind(...ids)
+    .all();
+  return results;
 }
 
 export function getEntry(db, id) {
   return db.prepare("SELECT * FROM entries WHERE id = ?1 AND deleted_at IS NULL").bind(id).first();
-}
-
-export function softDeleteEntry(db, id, by) {
-  return db
-    .prepare("UPDATE entries SET deleted_at = ?2, deleted_by = ?3 WHERE id = ?1 AND deleted_at IS NULL")
-    .bind(id, Date.now(), by)
-    .run();
 }
 
 const PAGE = 50;
@@ -334,4 +382,28 @@ export function redeemInvite(db, code, userId) {
     )
     .bind(code, userId, now)
     .first("created_by");
+}
+
+// ---------- categories ----------
+
+export async function listCategories(db, me) {
+  const { results } = await db
+    .prepare("SELECT id, name FROM categories WHERE user_id = ?1 ORDER BY name_lc")
+    .bind(me)
+    .all();
+  return results;
+}
+
+export function addCategory(db, me, name) {
+  return db
+    .prepare(
+      `INSERT INTO categories (user_id, name, name_lc, created_at) VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT (user_id, name_lc) DO NOTHING`
+    )
+    .bind(me, name, name.toLowerCase(), Date.now())
+    .run();
+}
+
+export function deleteCategory(db, me, id) {
+  return db.prepare("DELETE FROM categories WHERE id = ?1 AND user_id = ?2").bind(id, me).run();
 }

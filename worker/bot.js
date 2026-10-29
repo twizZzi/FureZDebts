@@ -1,7 +1,7 @@
 // Webhook updates: /start registers the user, inline buttons answer friend requests.
-import { acceptFriend, admitUser, declineFriend, HttpError, inviteCodeFrom } from "./actions.js";
+import { acceptFriend, admitUser, declineFriend, HttpError, inviteCodeFrom, respondEntry } from "./actions.js";
 import { getUser } from "./db.js";
-import { friendAcceptedText, friendDeclinedText, lockedText, startText } from "./messages.js";
+import { entryAnsweredText, friendAcceptedText, friendDeclinedText, lockedText, startText } from "./messages.js";
 import { callBot, openAppKeyboard, sendText } from "./telegram.js";
 
 export async function handleUpdate(update, deps) {
@@ -27,10 +27,34 @@ async function handleMessage(message, deps) {
   await sendText(env, message.chat.id, text, openAppKeyboard(origin, "Открыть приложение"));
 }
 
+const ENTRY_DECISIONS = { c: "confirm", o: "offset", d: "decline" };
+
 async function handleCallback(query, deps) {
   const { env, origin } = deps;
   const [scope, action, rawId] = String(query.data || "").split(":");
   let notice = "";
+
+  if (scope === "en" && query.message && ENTRY_DECISIONS[action]) {
+    const me = await admitUser(deps, query.from, { canNotify: true });
+    if (!me) return callBot(env, "answerCallbackQuery", { callback_query_id: query.id });
+    const decision = ENTRY_DECISIONS[action];
+    let text = "Запись уже обработана или удалена.";
+    try {
+      const { entry, balances } = await respondEntry(deps, me, Number(rawId), decision);
+      text = entryAnsweredText(entry, me.id, balances, decision);
+      notice = decision === "decline" ? "Отклонено" : "Готово";
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+      notice = error.message;
+    }
+    await callBot(env, "editMessageText", {
+      chat_id: query.message.chat.id,
+      message_id: query.message.message_id,
+      text,
+      parse_mode: "HTML",
+      reply_markup: openAppKeyboard(origin),
+    });
+  }
 
   if (scope === "fr" && query.message) {
     const me = await admitUser(deps, query.from, { canNotify: true });
