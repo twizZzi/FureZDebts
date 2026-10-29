@@ -52,6 +52,9 @@ export default function EntrySheet({ sheetKey, friendId: presetFriendId }) {
   const [saving, setSaving] = useState(false);
 
   const amount = parseAmount(amountText);
+  // A debt needs a reason, a return does not.
+  const noteMissing = kind === "debt" && !note.trim();
+  const ready = Boolean(amount && friend) && !noteMissing && !saving;
   const direction = directionOf(kind, side);
   const after = amount ? balance + (direction === "they_owe" ? amount : -amount) : balance;
   const overpaid = kind === "payment" && amount && balance !== 0 && Math.sign(after) === -Math.sign(balance);
@@ -70,7 +73,7 @@ export default function EntrySheet({ sheetKey, friendId: presetFriendId }) {
   };
 
   const save = async () => {
-    if (!amount || !friend || saving) return;
+    if (!ready) return;
     setSaving(true);
     const result = await mutate("POST", "/entries", {
       friendId,
@@ -87,7 +90,11 @@ export default function EntrySheet({ sheetKey, friendId: presetFriendId }) {
     }
   };
 
-  useMainButton({ text: saving ? "Сохраняю…" : "Сохранить", onClick: save, enabled: Boolean(amount && friend) && !saving });
+  useMainButton({
+    text: saving ? "Сохраняю…" : amount && noteMissing ? "Напиши, за что долг" : "Сохранить",
+    onClick: save,
+    enabled: ready,
+  });
 
   return (
     <Sheet
@@ -134,9 +141,9 @@ export default function EntrySheet({ sheetKey, friendId: presetFriendId }) {
       <Chips options={currencyOptions} value={currency} onChange={setCurrency} />
 
       <input
-        className="field note-input"
+        className={`field note-input ${amount && noteMissing ? "required" : ""}`}
         maxLength={200}
-        placeholder="За что — необязательно"
+        placeholder={kind === "debt" ? "За что — обязательно" : "Комментарий — необязательно"}
         value={note}
         onChange={(event) => setNote(event.target.value)}
         onKeyDown={(event) => event.key === "Enter" && save()}

@@ -1026,6 +1026,10 @@ html:not(.sheet-open) .browser-main-button {
   margin-top: 14px;
 }
 
+.note-input.required {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--danger) 55%, transparent);
+}
+
 .entry-preview b {
   font-weight: 750;
 }

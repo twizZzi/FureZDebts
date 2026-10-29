@@ -143,6 +143,7 @@ export async function createEntry({ env, ctx, origin }, me, input) {
 
   if (!["they_owe", "i_owe"].includes(input.direction)) throw new HttpError(400, "Неизвестное направление");
   if (!["debt", "payment"].includes(input.kind)) throw new HttpError(400, "Неизвестный тип записи");
+  if (input.kind === "debt" && !note) throw new HttpError(400, "Добавь описание: за что этот долг");
   if (!Number.isSafeInteger(amount) || amount <= 0 || amount > MAX_AMOUNT) throw new HttpError(400, "Некорректная сумма");
   if (!isCurrency(currency)) throw new HttpError(400, "Неизвестная валюта");
   if (!(await isFriend(env.DB, me.id, friendId))) throw new HttpError(403, "Записывать долги можно только друзьям");
