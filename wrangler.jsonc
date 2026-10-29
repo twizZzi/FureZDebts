@@ -11,7 +11,7 @@
     {
       "binding": "DB",
       "database_name": "furez-debts",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "ed8c879d-2536-40a9-8111-2155db8f2553",
       "migrations_dir": "migrations"
     }
   ],
